@@ -968,13 +968,25 @@ export function MeetingMinutesColumn({
     // we close the editor. commitDraft is a no-op when there's nothing to
     // commit (empty text or no open draft), so it's safe to always call.
     sectionMotionEditorRef.current?.commitDraft();
+    // Read the editor's current markdown directly — Milkdown's onChange flows
+    // through React state, and a fast Save click can land before that
+    // re-render has flushed.
+    const latestDiscussion =
+      sectionDiscussionRef.current?.getMarkdown() ?? sectionDraft.discussion;
+    const existing = sections[sectionEditIndex] ?? {};
     const next = [...sections];
+    // Build the section explicitly rather than spreading `existing` so we don't
+    // pass through fields the `update` mutation validator doesn't accept
+    // (motionText/motionTemplateId/motionBacklogId etc. live on storage but not
+    // on the mutation arg). `depth` and `reportSubmitted` are the only legacy
+    // fields we need to preserve.
     next[sectionEditIndex] = {
-      ...next[sectionEditIndex],
-      title: sectionDraft.title.trim() || next[sectionEditIndex]?.title || "Untitled section",
+      title: sectionDraft.title.trim() || existing.title || "Untitled section",
       type: sectionDraft.type.trim() || undefined,
       presenter: cleanOptional(sectionDraft.presenter),
-      discussion: cleanOptional(sectionDraft.discussion),
+      discussion: cleanOptional(latestDiscussion),
+      reportSubmitted: existing.reportSubmitted,
+      depth: existing.depth,
       decisions: sectionDraft.decisions.map((d) => d.trim()).filter(Boolean),
       actionItems: sectionDraft.actionItems
         .map((item) => ({
@@ -2699,9 +2711,13 @@ function relatedMotionsForSection(section: any, sectionIndex: number, motions: M
   if (!haystack) return [];
   return motions.map((motion, index) => ({ motion, index })).filter(({ motion }) => {
     if (isAdjournmentMotion(motion)) return isAdjournmentSection(section);
-    if (motion.sectionIndex === sectionIndex) return true;
+    // When the motion has been bound to a specific section index, that index
+    // alone determines its home — don't also match every same-titled sibling
+    // (sections frequently share a title like "New section" before they're
+    // renamed).
+    if (motion.sectionIndex != null) return motion.sectionIndex === sectionIndex;
     if (motion.sectionTitle && normalize(motion.sectionTitle) === normalize(section?.title ?? "")) return true;
-    if (motion.sectionIndex != null || motion.sectionTitle) return false;
+    if (motion.sectionTitle) return false;
     const motionText = normalize(motion.text);
     if (!motionText) return false;
     if (haystack.includes(motionText.slice(0, 32))) return true;
