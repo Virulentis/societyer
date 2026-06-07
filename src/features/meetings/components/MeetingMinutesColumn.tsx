@@ -1,6 +1,6 @@
 import { type DragEvent as ReactDragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowDown, ArrowUp, ChevronDown, ClipboardList, FileText, GripVertical, IndentDecrease, IndentIncrease, ListChecks, Mic, MoreHorizontal, Pencil, Plus, Save, Trash2, Unlink, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ClipboardList, FileText, GripVertical, IndentDecrease, IndentIncrease, ListChecks, Mic, MoreHorizontal, Pencil, Plus, Save, Trash2, Unlink, X } from "lucide-react";
 import { Badge, Field, MenuRow } from "../../../components/ui";
 import { MarkdownEditor, type MarkdownEditorHandle } from "../../../components/MarkdownEditor";
 import { LineListEditor } from "../../../components/LineListEditor";
@@ -155,14 +155,15 @@ export function MeetingMinutesColumn({
     );
   const detailedSectionTitles = useMemo(() => {
     const set = new Set<string>();
-    for (const section of sections) {
-      if (!sectionHasDetails(section)) continue;
+    sections.forEach((section: any, index: number) => {
+      const hasMotion = relatedMotionsForSection(section, index, motions).length > 0;
+      if (!sectionHasDetails(section) && !hasMotion) return;
       const title = String(section?.title ?? "").trim().toLowerCase();
       if (title) set.add(title);
-    }
+    });
     return set;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sections]);
+  }, [sections, motions]);
   const [sectionEditIndex, setSectionEditIndex] = useState<number | null>(null);
   const [sectionDraft, setSectionDraft] = useState<SectionDraft | null>(null);
   const [agendaNumberingMode, setAgendaNumberingMode] = useState<AgendaNumberingMode>(readStoredAgendaNumberingMode);
@@ -854,6 +855,7 @@ export function MeetingMinutesColumn({
       !section?.presenter &&
       !(section?.decisions ?? []).length &&
       !(section?.actionItems ?? []).length &&
+      !(section?.linkedTaskIds ?? []).length &&
       !(motionMatchesBySection[index]?.length);
     const draftEmpty = !isEditingThis || (
       !sectionDraft?.discussion &&
@@ -1255,7 +1257,7 @@ export function MeetingMinutesColumn({
             <div className="meeting-minutes-section-tasks">
               {linkedTaskRecords.length === 0 ? (
                 <div className="muted">
-                  Link a task from this meeting to capture status updates and a completion note here. Status changes apply to the kanban when you save the section.
+                  Link a task to update its status here.
                 </div>
               ) : (
                 linkedTaskRecords.map((task) => {
@@ -1999,7 +2001,7 @@ export function MeetingMinutesColumn({
                                     <GripVertical size={12} />
                                   </span>
                                 )}
-                                {!isEditingThis && <ChevronDown size={13} aria-hidden="true" />}
+                                {!isEditingThis && <ChevronDown size={13} aria-hidden="true" className="meeting-minutes-section-item__expand" />}
                                 {sectionEditIndex === index && sectionDraft && !isMobileSectionEditor ? (
                                   <span
                                     className="meeting-minutes-section-item__title-edit"
@@ -2461,6 +2463,62 @@ type SectionActionDraft = {
 
 type AttendancePerson = { name: string; status: "present" | "absent" };
 
+function AttendanceRosterRow({
+  person,
+  onSetStatus,
+}: {
+  person: AttendancePerson;
+  onSetStatus: (status: AttendancePerson["status"]) => void;
+}) {
+  const nameRef = useRef<HTMLSpanElement | null>(null);
+  const [compact, setCompact] = useState(false);
+
+  useEffect(() => {
+    const el = nameRef.current;
+    if (!el) return;
+    const check = () => {
+      const truncated = el.scrollWidth > el.clientWidth;
+      setCompact((prev) => {
+        if (truncated) return true;
+        // Hysteresis: only drop back to text labels once there's clear slack,
+        // otherwise the wider text buttons immediately re-truncate the name.
+        if (prev && el.clientWidth - el.scrollWidth < 80) return true;
+        return false;
+      });
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [person.name]);
+
+  return (
+    <>
+      <span ref={nameRef} className="attendance-roster__name">{person.name}</span>
+      <div className="attendance-roster__status segmented">
+        <button
+          type="button"
+          className={`segmented__btn${person.status === "present" ? " is-active" : ""}`}
+          onClick={() => onSetStatus("present")}
+          aria-label="Present"
+          title="Present"
+        >
+          {compact ? <Check size={14} aria-hidden /> : "Present"}
+        </button>
+        <button
+          type="button"
+          className={`segmented__btn${person.status === "absent" ? " is-active" : ""}`}
+          onClick={() => onSetStatus("absent")}
+          aria-label="Absent / regrets"
+          title="Absent / regrets"
+        >
+          {compact ? <X size={14} aria-hidden /> : "Absent / regrets"}
+        </button>
+      </div>
+    </>
+  );
+}
+
 function AttendanceRoster({
   people,
   peopleNames,
@@ -2499,43 +2557,17 @@ function AttendanceRoster({
     onChange(people.filter((_, i) => i !== index));
   };
 
-  const presentCount = people.filter((p) => p.status === "present").length;
-  const absentCount = people.length - presentCount;
-
   return (
     <ListEditor
       items={people}
       divided
       onRemove={remove}
       getRemoveLabel={(person) => `Remove ${person.name}`}
-      header={
-        <>
-          <strong>Attendance</strong>
-          <span className="muted" style={{ fontSize: "var(--fs-sm)" }}>
-            {presentCount} present · {absentCount} absent / regrets
-          </span>
-        </>
-      }
       renderItem={(person, index) => (
-        <>
-          <span className="attendance-roster__name">{person.name}</span>
-          <div className="attendance-roster__status segmented">
-            <button
-              type="button"
-              className={`segmented__btn${person.status === "present" ? " is-active" : ""}`}
-              onClick={() => setStatus(index, "present")}
-            >
-              Present
-            </button>
-            <button
-              type="button"
-              className={`segmented__btn${person.status === "absent" ? " is-active" : ""}`}
-              onClick={() => setStatus(index, "absent")}
-            >
-              Absent / regrets
-            </button>
-          </div>
-        </>
+        <AttendanceRosterRow
+          person={person}
+          onSetStatus={(status) => setStatus(index, status)}
+        />
       )}
       footer={
         <>
