@@ -2470,31 +2470,9 @@ function AttendanceRosterRow({
   person: AttendancePerson;
   onSetStatus: (status: AttendancePerson["status"]) => void;
 }) {
-  const nameRef = useRef<HTMLSpanElement | null>(null);
-  const [compact, setCompact] = useState(false);
-
-  useEffect(() => {
-    const el = nameRef.current;
-    if (!el) return;
-    const check = () => {
-      const truncated = el.scrollWidth > el.clientWidth;
-      setCompact((prev) => {
-        if (truncated) return true;
-        // Hysteresis: only drop back to text labels once there's clear slack,
-        // otherwise the wider text buttons immediately re-truncate the name.
-        if (prev && el.clientWidth - el.scrollWidth < 80) return true;
-        return false;
-      });
-    };
-    check();
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [person.name]);
-
   return (
     <>
-      <span ref={nameRef} className="attendance-roster__name">{person.name}</span>
+      <span className="attendance-roster__name">{person.name}</span>
       <div className="attendance-roster__status segmented">
         <button
           type="button"
@@ -2503,7 +2481,7 @@ function AttendanceRosterRow({
           aria-label="Present"
           title="Present"
         >
-          {compact ? <Check size={14} aria-hidden /> : "Present"}
+          <Check size={14} aria-hidden />
         </button>
         <button
           type="button"
@@ -2512,7 +2490,7 @@ function AttendanceRosterRow({
           aria-label="Absent / regrets"
           title="Absent / regrets"
         >
-          {compact ? <X size={14} aria-hidden /> : "Absent / regrets"}
+          <X size={14} aria-hidden />
         </button>
       </div>
     </>
